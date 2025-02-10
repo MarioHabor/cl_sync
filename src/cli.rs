@@ -27,6 +27,13 @@ pub fn build_cli() -> Command {
                 .help("Upload only modifie files."),
         )
         .arg(
+            Arg::new("debug")
+                .long("debug")
+                .short('d')
+                .action(ArgAction::SetTrue)
+                .help("Generate shell completions"),
+        )
+        .arg(
             Arg::new("generator")
                 .long("generate")
                 .short('g')

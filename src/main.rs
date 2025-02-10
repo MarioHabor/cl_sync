@@ -4,10 +4,22 @@ pub mod operations;
 
 use anyhow::Result;
 use clap_complete::Shell;
+use tracing::{debug, Level};
+use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let matches = cli::build_cli().get_matches();
+
+    let log_level = if matches.get_flag("debug") {
+        Level::DEBUG
+    } else {
+        Level::INFO
+    };
+
+    let subscriber = FmtSubscriber::builder().with_max_level(log_level).finish();
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+    debug!("Debug mode enabled!");
 
     if matches.get_flag("synchronise") {
         //let _ = operation::check_last_update();
