@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 // This is the bincode file that gets loaded in to memory
 pub struct ClCache {
-    pub data: Arc<Mutex<HashMap<String, ToVery>>>,
+    pub data: Arc<Mutex<HashMap<String, ToUpload>>>,
     pub cache_storage_path: String,
 }
 
@@ -17,7 +17,7 @@ pub struct ClCache {
 // that need to be checked and uploaded
 // file_path: where the file or dir lives
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ToVery {
+pub struct ToUpload {
     pub file_path: String,
     pub last_saved: DateTime<Local>,
 }
