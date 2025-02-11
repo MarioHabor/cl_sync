@@ -14,12 +14,15 @@ use super::sys_ops;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TomlData {
+    #[serde(default)]
     pub upload: HashMap<String, TomlUpload>,
+    #[serde(default)]
     pub cache_dir: CacheDir,
+    #[serde(default)]
     pub cloud_providers: HashMap<String, CloudProviders>,
 }
 
-#[derive(Debug, Deserialize, Serialize, Clone)]
+#[derive(Default, Debug, Deserialize, Serialize, Clone)]
 pub struct CacheDir {
     pub dir: String,
 }
@@ -126,8 +129,9 @@ impl TomlParser {
     /// Updates the `[cache_dir] dir` value and writes back to `upload.toml`
     pub async fn update_cache_dir(&mut self) -> Result<()> {
         let home_path = home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
-        let config_path = home_path.join(".config/cl_sync");
-        let cache_path = config_path.join("/cache.bin");
+
+        let toml_path = home_path.join(".config/cl_sync/upload.toml");
+        let cache_path = home_path.join(".config/cl_sync/cache.bin");
         // Update the `dir` field in memory
         self.data.cache_dir.dir = cache_path.to_string_lossy().to_string();
 
@@ -136,13 +140,13 @@ impl TomlParser {
             toml::to_string_pretty(&self.data).context("Failed to serialize updated TOML")?;
 
         // Write back the modified TOML to the file
-        fs::write(&config_path, updated_toml)
+        fs::write(&toml_path, updated_toml)
             .await
             .context("Failed to write updated TOML file")?;
 
         debug!(
             "Updated [cache_dir] dir to: {}",
-            config_path.to_string_lossy()
+            cache_path.to_string_lossy()
         );
         Ok(())
     }

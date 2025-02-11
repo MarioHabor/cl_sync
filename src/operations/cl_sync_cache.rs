@@ -28,11 +28,41 @@ pub struct ToUpload {
     pub last_saved: DateTime<Local>,
 }
 
-#[allow(dead_code)]
 impl ClCache {
-    pub async fn new() -> Result<Self> {
+    pub async fn new(parsed_toml: &TomlParser) -> Result<Self> {
         let _ = sys_ops::config_dir_exists().await;
-        todo!()
+
+        let data = Self::load_from_file(&mut parsed_toml.clone())
+            .await
+            .unwrap_or_default();
+        // Get the CacheDir section and extract the path
+        let cache_storage_path = match parsed_toml
+            .get_section_from_toml(TomlSection::CacheDir)
+            .await
+        {
+            Ok(TomlToParse::CacheDir(dir)) => dir,
+
+            _ => panic!("Unexpected section type for CacheDir"),
+        };
+        Ok(ClCache {
+            data: Arc::new(Mutex::new(HashMap::from(data))),
+            cache_storage_path,
+        })
+    }
+
+    pub async fn insert(&self, upload: ToUpload) {
+        let mut data = self.data.lock().await; // Lock the HashMap
+        data.insert(upload.file_path.to_string(), upload); // Perform the insertion
+    }
+
+    pub async fn remove(&self, key: &str) -> Option<ToUpload> {
+        let mut data = self.data.lock().await; // Lock the HashMap
+        data.remove(key) // Perform the removal
+    }
+
+    pub async fn get(&self, key: &str) -> Option<ToUpload> {
+        let data = self.data.lock().await; // Lock the HashMap for reading
+        data.get(key).cloned() // Return a cloned value to avoid borrowing issues
     }
 
     async fn load_from_file(parsed_toml: &mut TomlParser) -> Result<HashMap<String, ToUpload>> {
@@ -50,8 +80,7 @@ impl ClCache {
             }
         };
         if !Self::file_exists(&cache_path).await {
-            parsed_toml.update_cache_dir().await?;
-            Self::create_cache_file(&mut cache_path).await;
+            let _ = Self::create_cache_file(&mut cache_path, parsed_toml).await;
         }
         let mut file = File::open(cache_path).await?;
         let mut buffer = Vec::new();
@@ -67,12 +96,16 @@ impl ClCache {
         }
     }
 
-    async fn create_cache_file(cache_storage_path: &mut String) {
+    async fn create_cache_file(
+        cache_storage_path: &mut String,
+        parsed_toml: &mut TomlParser,
+    ) -> Result<()> {
         if !Self::directory_exists(&cache_storage_path).await {
+            println!("directory_exists no");
             let home_path = home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
             let config_path = home_path.join(".config/cl_sync/cache.bin");
-            // add more logic to check if default directory exists
 
+            parsed_toml.update_cache_dir().await?;
             *cache_storage_path = config_path.to_string_lossy().to_string();
         }
         let encoded: Vec<u8> = bincode::serialize("").unwrap();
@@ -80,9 +113,9 @@ impl ClCache {
             .await
             .expect("Can not write cache to path");
         let _ = file.write_all(&encoded).await;
+        Ok(())
     }
 
-    #[allow(dead_code)]
     async fn directory_exists(path: &str) -> bool {
         match fs::metadata(path).await {
             Ok(metadata) => metadata.is_dir(),
@@ -91,7 +124,42 @@ impl ClCache {
     }
 }
 
+#[cfg(test)]
+mod cache_test {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_home() {
+        let _ = sys_ops::config_dir_exists().await;
+    }
+}
+
 #[tokio::test]
-async fn test_get_home() {
-    let _ = sys_ops::config_dir_exists().await;
+async fn cache_testing() -> Result<()> {
+    let parsed_toml = TomlParser::new().await?;
+
+    let cache = ClCache::new(&parsed_toml).await?;
+
+    if let Some(structure) = cache.get("/home/dev/Desktop/Master_Passworlds.kdbx").await {
+        println!(
+            "Found existing file: {}, last checked: {}",
+            structure.file_path, structure.last_saved
+        );
+    } else {
+        println!("Existing file not found in cache");
+    }
+    // Check a file
+    let file_path = "/home/dev/Desktop/Master_Passworlds.kdbx";
+    match cache.get(file_path).await {
+        Some(info) => {
+            println!("File {} was last checked at {}", file_path, info.last_saved);
+            assert!(
+                !info.last_saved.to_string().is_empty(),
+                "Last saved data should not be empty"
+            );
+        }
+        None => println!("File {} has never been checked before", file_path),
+    }
+
+    Ok(())
 }
