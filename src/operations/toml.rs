@@ -3,27 +3,28 @@ use crate::error;
 use anyhow::{anyhow, Context, Result};
 use hashbrown::HashMap;
 use home::home_dir;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::io::ErrorKind;
 use std::path::PathBuf;
 use tokio::fs;
 use toml;
+use tracing::debug;
 
 use super::sys_ops;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TomlData {
     pub upload: HashMap<String, TomlUpload>,
     pub cache_dir: CacheDir,
     pub cloud_providers: HashMap<String, CloudProviders>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CacheDir {
     pub dir: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TomlUpload {
     pub file_or_dir_name: String,
     pub file_or_dir_path: String,
@@ -35,7 +36,7 @@ pub struct TomlUpload {
     pub veracrypt_user_pw: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CloudProviders {
     pub cloud_name: String,
     pub dir: String,
@@ -120,5 +121,77 @@ impl TomlParser {
                 }
             }
         }
+    }
+
+    /// Updates the `[cache_dir] dir` value and writes back to `upload.toml`
+    pub async fn update_cache_dir(&mut self) -> Result<()> {
+        let home_path = home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
+        let config_path = home_path.join(".config/cl_sync");
+        let cache_path = config_path.join("/cache.bin");
+        // Update the `dir` field in memory
+        self.data.cache_dir.dir = config_path.to_string_lossy().to_string();
+
+        // Convert the updated struct back to a TOML string
+        let updated_toml =
+            toml::to_string_pretty(&self.data).context("Failed to serialize updated TOML")?;
+
+        // Write back the modified TOML to the file
+        fs::write(&config_path, updated_toml)
+            .await
+            .context("Failed to write updated TOML file")?;
+
+        debug!(
+            "Updated [cache_dir] dir to: {}",
+            config_path.to_string_lossy()
+        );
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod toml_parse_test {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_toml_parsing() -> Result<()> {
+        let parser = TomlParser::new().await?;
+
+        // Extract the "upload" section
+        match parser.get_section_from_toml(TomlSection::Upload).await {
+            Ok(TomlToParse::Upload(upload_data)) => {
+                println!("Upload data: {:?}", upload_data);
+            }
+            Ok(_) => {
+                eprintln!("Unexpected section returned for 'Upload'");
+            }
+            Err(err) => {
+                eprintln!("Error extracting upload section: {:?}", err);
+            }
+        }
+        let section = TomlSection::CloudProviders;
+
+        match parser.get_section_from_toml(section).await {
+            Ok(TomlToParse::CloudProviders(cloud_data)) => {
+                // Assert or verify the parsed data
+                println!("Cloud Providers data: {:?}", cloud_data);
+                assert!(
+                    !cloud_data.is_empty(),
+                    "Cloud providers data should not be empty"
+                );
+            }
+            Ok(_) => panic!("Unexpected section returned"),
+            Err(err) => panic!("Test failed with error: {:?}", err),
+        }
+        match parser.get_section_from_toml(TomlSection::CacheDir).await {
+            Ok(TomlToParse::CacheDir(cloud_data)) => {
+                // Assert or verify the parsed data
+                println!("Cache dir data: {:?}", cloud_data);
+                assert!(!cloud_data.is_empty(), "Cache dir data should not be empty");
+            }
+            Ok(_) => panic!("Unexpected section returned"),
+            Err(err) => panic!("Test failed with error: {:?}", err),
+        }
+
+        Ok(())
     }
 }

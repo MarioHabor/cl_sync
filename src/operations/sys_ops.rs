@@ -24,6 +24,7 @@ pub async fn read_dir_content(dir: &Path) -> Result<()> {
     Ok(())
 }
 
+// Check is the cl_sync dir exists in .config
 pub async fn config_dir_exists() -> Result<()> {
     // Get home directory safely
     let home_path = home_dir().unwrap_or_else(|| PathBuf::from("/tmp"));
@@ -60,7 +61,7 @@ fn get_default_toml() -> String {
     format!(
         indoc! {
         r#"
-        [upload]
+[upload]
   [upload.txt]
 #   Add the name of the file or dir
   file_or_dir_name = "Text File (4).txt"
