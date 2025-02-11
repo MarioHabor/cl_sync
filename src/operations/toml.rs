@@ -129,7 +129,7 @@ impl TomlParser {
         let config_path = home_path.join(".config/cl_sync");
         let cache_path = config_path.join("/cache.bin");
         // Update the `dir` field in memory
-        self.data.cache_dir.dir = config_path.to_string_lossy().to_string();
+        self.data.cache_dir.dir = cache_path.to_string_lossy().to_string();
 
         // Convert the updated struct back to a TOML string
         let updated_toml =

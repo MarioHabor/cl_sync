@@ -35,7 +35,7 @@ impl ClCache {
         todo!()
     }
 
-    async fn load_from_file(parsed_toml: TomlParser) -> Result<HashMap<String, ToUpload>> {
+    async fn load_from_file(parsed_toml: &mut TomlParser) -> Result<HashMap<String, ToUpload>> {
         let mut cache_path = match parsed_toml
             .get_section_from_toml(TomlSection::CacheDir)
             .await
@@ -50,7 +50,7 @@ impl ClCache {
             }
         };
         if !Self::file_exists(&cache_path).await {
-            parsed_toml.update_cache_dir();
+            parsed_toml.update_cache_dir().await?;
             Self::create_cache_file(&mut cache_path).await;
         }
         let mut file = File::open(cache_path).await?;
@@ -88,25 +88,6 @@ impl ClCache {
             Ok(metadata) => metadata.is_dir(),
             Err(_) => false,
         }
-    }
-
-    async fn update_cache_dir() -> Result<()> {
-        let toml = crate::operations::toml::TomlParser::new();
-
-        todo!()
-
-        //// Convert updated struct back to a TOML string
-        //let updated_toml = parsed_toml
-        //    .to_toml_string()
-        //    .context("Failed to serialize updated TOML")?;
-        //
-        //// Write back the modified TOML to the file
-        //fs::write(config_path, updated_toml)
-        //    .await
-        //    .context("Failed to write updated TOML file")?;
-        //
-        //println!("Updated [cache_dir] dir to: {}", new_dir);
-        //Ok(())
     }
 }
 
