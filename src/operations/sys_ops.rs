@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_recursion::async_recursion;
+use chrono::{DateTime, Local};
 use home::home_dir;
 use indoc::indoc;
 use std::path::Path;
@@ -22,6 +23,20 @@ pub async fn read_dir_content(dir: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub async fn is_file(path: PathBuf) -> bool {
+    match fs::metadata(path).await {
+        Ok(metadata) => metadata.is_file(), // Check if the path is a file
+        Err(_) => false,
+    }
+}
+
+pub async fn is_dir(path: PathBuf) -> bool {
+    match fs::metadata(path).await {
+        Ok(metadata) => metadata.is_dir(),
+        Err(_) => false,
+    }
 }
 
 // Check is the cl_sync dir exists in .config
@@ -52,6 +67,11 @@ pub async fn create_toml_file() -> Result<()> {
     fs::write(&config_path, default_content).await?;
     debug!("TOML file created: {:?}", config_path);
     Ok(())
+}
+
+async fn to_epoch(modified: DateTime<Local>) -> i64 {
+    let datetime: DateTime<Local> = modified.into();
+    datetime.timestamp()
 }
 
 fn get_default_toml() -> String {

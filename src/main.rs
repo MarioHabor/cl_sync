@@ -1,11 +1,15 @@
+pub mod cl_sync;
 pub mod cli;
 pub mod error;
 pub mod operations;
 
 use anyhow::Result;
 use clap_complete::Shell;
+use std::path::PathBuf;
 use tracing::{debug, Level};
 use tracing_subscriber::FmtSubscriber;
+
+use crate::operations::toml;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,17 +25,23 @@ async fn main() -> Result<()> {
     tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
     debug!("Debug mode enabled!");
 
-    if matches.get_flag("synchronise") {
-        //let _ = operation::check_last_update();
+    let nointer = matches.get_flag("non_interactive");
+    if nointer {
+        debug!("Running in non-interactive mode.");
     }
 
-    if matches.get_flag("upload") {
-        //let parsed_toml = TomlParser::new().await?;
-        //async_ope::async_begin_upload(&parsed_toml).await?;
+    if matches.get_flag("synchronise") {
+        //let parsed_toml = toml::TomlParser::new().await?;
+        //cl_sync::begin_upload(&parsed_toml).await?;
+    }
+
+    if let Some(path) = matches.get_one::<PathBuf>("upload") {
+        let parsed_toml = toml::TomlParser::new().await?;
+        cl_sync::begin_upload(&parsed_toml, path.to_path_buf()).await?;
     }
 
     if matches.get_flag("check") {
-        //let _ = operation::check_last_update();
+        let _ = cl_sync::check_last_update();
     }
 
     if let Some(generator) = matches.get_one::<Shell>("generator") {
