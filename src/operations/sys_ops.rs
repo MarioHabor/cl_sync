@@ -27,7 +27,7 @@ pub async fn read_dir_content(dir: &Path) -> Result<()> {
 
 pub async fn is_file(path: PathBuf) -> bool {
     match fs::metadata(path).await {
-        Ok(metadata) => metadata.is_file(), // Check if the path is a file
+        Ok(metadata) => metadata.is_file(),
         Err(_) => false,
     }
 }

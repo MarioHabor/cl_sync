@@ -37,7 +37,7 @@ async fn main() -> Result<()> {
 
     if let Some(path) = matches.get_one::<PathBuf>("upload") {
         let parsed_toml = toml::TomlParser::new().await?;
-        cl_sync::begin_upload(&parsed_toml, path.to_path_buf()).await?;
+        cl_sync::begin_upload(&parsed_toml, path.to_path_buf(), nointer).await?;
     }
 
     if matches.get_flag("check") {
