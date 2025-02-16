@@ -31,8 +31,8 @@ async fn main() -> Result<()> {
     }
 
     if matches.get_flag("synchronise") {
-        //let parsed_toml = toml::TomlParser::new().await?;
-        //cl_sync::begin_upload(&parsed_toml).await?;
+        let parsed_toml = toml::TomlParser::new().await?;
+        cl_sync::begin_sync(&parsed_toml, nointer).await?;
     }
 
     if let Some(path) = matches.get_one::<PathBuf>("upload") {
