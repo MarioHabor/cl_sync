@@ -122,6 +122,21 @@ impl ClCache {
             Err(_) => false,
         }
     }
+
+    pub async fn save_to_file(&self) -> Result<()> {
+        // Lock the Mutex to access the data
+        let data = self.data.lock().await;
+        let encoded: Vec<u8> = bincode::serialize(&*data).unwrap();
+        let mut file = File::create(&self.cache_storage_path)
+            .await
+            .expect("Can not write cache to path");
+        let _ = file
+            .write_all(&encoded)
+            .await
+            .expect("Can not write cache to path");
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

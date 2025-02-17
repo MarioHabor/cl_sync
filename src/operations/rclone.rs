@@ -155,10 +155,6 @@ pub async fn mount_remote(remote: &toml::CloudProviders) -> anyhow::Result<Rclon
     //params.insert("fs".to_string(), "dge:".to_string());
     params.insert("fs".to_string(), remote.cloud_name.to_string());
 
-    //params.insert(
-    //    "mountPoint".to_string(),
-    //    "/home/dev/Documents/cloud/dge".to_string(),
-    //);
     params.insert("mountPoint".to_string(), remote.dir.to_string());
     params.insert("_async".to_string(), "true".to_string());
 

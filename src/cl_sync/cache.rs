@@ -45,3 +45,22 @@ pub async fn compare_last_update(cache_time: DateTime<Local>, file_time: &String
     }
     Ok(false)
 }
+
+pub async fn save_last_update_to_cache(
+    file_or_dir_path: &str,
+    parsed_toml: &toml::TomlParser,
+) -> Result<()> {
+    let cache = load(parsed_toml).await?;
+
+    // Add a new file to the cache
+    let new_file = cl_sync_cache::ToUpload {
+        file_path: file_or_dir_path.to_string(),
+        last_saved: Local::now(),
+    };
+    cache.insert(new_file).await;
+
+    // Save updated cache
+    cache.save_to_file().await?;
+
+    Ok(())
+}
