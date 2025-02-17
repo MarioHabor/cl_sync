@@ -82,7 +82,7 @@ pub async fn to_epoch(modified: DateTime<Local>) -> i64 {
     datetime.timestamp()
 }
 
-pub async fn async_run_rclone_dismount(cloud_dir: &str) -> Result<ExitStatus> {
+pub async fn fusermount(cloud_dir: &str) -> Result<ExitStatus> {
     println!("Dismounting: {}", cloud_dir);
 
     let mut child = Command::new("fusermount")

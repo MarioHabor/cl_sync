@@ -119,7 +119,7 @@ pub async fn begin_sync(parsed_toml: &toml::TomlParser) -> Result<()> {
         }
     }
 
-    let _ = dismount_remotes(&mut mounted_remotes);
+    let _ = dismount_remotes(&mut mounted_remotes).await?;
     // Stop rclone when done
     if let Some(mut server) = rclone_server {
         server.stop().await;
@@ -127,12 +127,12 @@ pub async fn begin_sync(parsed_toml: &toml::TomlParser) -> Result<()> {
     Ok(())
 }
 
-async fn sync(
-    parsed_toml: &toml::TomlParser,
+async fn sync<'a>(
+    parsed_toml: &'a toml::TomlParser,
     is_rclone_server_started: bool,
-    to_up: &toml::TomlUpload,
-    mounted_remotes: &mut Vec<String>,
-) -> Result<(RcloneServer, bool)> {
+    to_up: &'a toml::TomlUpload,
+    mounted_remotes: &'a mut Vec<String>,
+) -> Result<(RcloneServer, bool, &'a mut Vec<String>)> {
     let rclone_server;
 
     if !is_rclone_server_started {
@@ -173,7 +173,7 @@ async fn sync(
     let _ = job_progress(&mut mount_jobid).await;
 
     // Stop rclone when done
-    Ok((rclone_server, true))
+    Ok((rclone_server, true, mounted_remotes))
 }
 
 pub async fn job_progress(mount_jobid: &mut Vec<u16>) -> Result<()> {
@@ -202,8 +202,9 @@ pub async fn job_progress(mount_jobid: &mut Vec<u16>) -> Result<()> {
 }
 
 async fn dismount_remotes(mounted_remotes: &mut Vec<String>) -> Result<()> {
+    println!("{:?}", mounted_remotes);
     for remote in mounted_remotes {
-        sys_ops::async_run_rclone_dismount(remote).await?;
+        sys_ops::fusermount(remote).await?;
     }
     Ok(())
 }
