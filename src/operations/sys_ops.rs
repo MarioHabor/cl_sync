@@ -8,6 +8,14 @@ use std::path::PathBuf;
 use tokio::fs;
 use tracing::debug;
 
+use anyhow::Context;
+
+use std::process::ExitStatus;
+use std::process::Stdio;
+
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
+
 #[async_recursion]
 pub async fn read_dir_content(dir: &Path) -> Result<()> {
     let mut entries = fs::read_dir(dir).await?;
@@ -69,9 +77,55 @@ pub async fn create_toml_file() -> Result<()> {
     Ok(())
 }
 
-async fn to_epoch(modified: DateTime<Local>) -> i64 {
+pub async fn to_epoch(modified: DateTime<Local>) -> i64 {
     let datetime: DateTime<Local> = modified.into();
     datetime.timestamp()
+}
+
+pub async fn async_run_rclone_dismount(cloud_dir: &str) -> Result<ExitStatus> {
+    println!("Dismounting: {}", cloud_dir);
+
+    let mut child = Command::new("fusermount")
+        .arg("-u")
+        .arg(cloud_dir)
+        .stdout(Stdio::piped()) // Capture stdout
+        .stderr(Stdio::piped()) // Capture stderr
+        .spawn()
+        .context("Failed to spawn fusermount process")?;
+
+    // Capture stdout asynchronously
+    if let Some(stdout) = child.stdout.take() {
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                println!("fusermount stdout: {}", line);
+            }
+        });
+    }
+
+    // Capture stderr asynchronously
+    if let Some(stderr) = child.stderr.take() {
+        tokio::spawn(async move {
+            let mut reader = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                eprintln!("fusermount stderr: {}", line);
+            }
+        });
+    }
+
+    // Wait for the process to complete and get the exit status
+    let status = child
+        .wait()
+        .await
+        .context("Failed to wait for fusermount process")?;
+
+    if status.success() {
+        println!("Successfully dismounted: {}", cloud_dir);
+    } else {
+        eprintln!("Failed to dismount: {}", cloud_dir);
+    }
+
+    Ok(status)
 }
 
 fn get_default_toml() -> String {

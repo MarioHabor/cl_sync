@@ -1,4 +1,4 @@
 /target
-
+.vscode
 !upload.toml
 !rclone_cms.md

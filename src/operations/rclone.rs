@@ -1,3 +1,4 @@
+use chrono::{DateTime, Local};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tokio::process::{Child, Command};
@@ -50,11 +51,17 @@ pub struct RcloneResponse {
     #[serde(rename = "jobid")]
     job_id: Option<u16>,
     duration: Option<f64>,
-    error: Option<bool>,
+    error: Option<String>,
     finished: Option<bool>,
     group: Option<String>,
     id: Option<u16>,
     success: Option<bool>,
+
+    #[serde(rename = "endTime")]
+    end_time: Option<DateTime<Local>>,
+
+    #[serde(rename = "startTime")]
+    start_time: Option<DateTime<Local>>,
 }
 
 //        "duration": 1.248352007,
@@ -94,10 +101,10 @@ impl RcloneRquest {
             .await?
             .json::<RcloneResponse>()
             .await?;
-        if self.job_id.is_some() {
+        if response.job_id.is_some() {
             self.job_id = Some(response.job_id.unwrap());
         }
-        if self.finished.is_some() {
+        if response.finished.is_some() {
             self.finished = Some(response.finished.unwrap());
         }
         println!("post response: \n{:?}", response);
@@ -112,6 +119,7 @@ pub async fn sync_sync(from: String, upload_to: String) -> anyhow::Result<Rclone
 
     params.insert("createEmptySrcDirs".to_string(), "true".to_string());
     params.insert("_async".to_string(), "true".to_string());
+    println!("params : {:?}", params);
 
     let mut rclone_rquest = RcloneRquest {
         command: "sync/sync".to_string(),
@@ -120,7 +128,6 @@ pub async fn sync_sync(from: String, upload_to: String) -> anyhow::Result<Rclone
         finished: None,
     };
     rclone_rquest.post().await?;
-    println!("{:?}", rclone_rquest);
 
     Ok(rclone_rquest)
 }
@@ -129,7 +136,7 @@ pub async fn check_job_status(job_id: u16) -> anyhow::Result<bool> {
     let mut params = hashbrown::HashMap::new();
     params.insert("jobid".to_string(), job_id.to_string());
 
-    params.insert("_async".to_string(), "true".to_string());
+    //params.insert("_async".to_string(), "true".to_string());
 
     let mut rclone_rquest = RcloneRquest {
         command: "job/status".to_string(),
@@ -138,7 +145,7 @@ pub async fn check_job_status(job_id: u16) -> anyhow::Result<bool> {
         finished: None,
     };
     rclone_rquest.post().await?;
-    println!("{:?}", rclone_rquest.finished);
+    println!("cehck job stat \n{:?}", rclone_rquest);
 
     Ok(rclone_rquest.finished.unwrap())
 }

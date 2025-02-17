@@ -6,8 +6,11 @@ use std::u16;
 use tracing::debug;
 
 use crate::operations::rclone;
+use crate::operations::rclone::RcloneServer;
 use crate::operations::sys_ops;
 use crate::operations::toml;
+
+pub mod cache;
 
 pub async fn check_last_update() {
     todo!();
@@ -46,7 +49,7 @@ pub async fn interactive_mode_to_up(nointe: bool, path: &PathBuf) -> Result<bool
 }
 
 pub async fn begin_upload(
-    parsed_toml: &toml::TomlParser,
+    _parsed_toml: &toml::TomlParser,
     path: PathBuf,
     nointe: bool,
 ) -> Result<()> {
@@ -65,8 +68,11 @@ pub async fn begin_upload(
     Ok(())
 }
 
-pub async fn begin_sync(parsed_toml: &toml::TomlParser, nointe: bool) -> Result<()> {
-    let mut rclone_server = rclone::RcloneServer::start().await;
+//let cache = async_load_cache(&parsed_toml).await;
+
+pub async fn begin_sync(parsed_toml: &toml::TomlParser) -> Result<()> {
+    let cache = cache::load(&parsed_toml).await.unwrap();
+    let mut rclone_server: Option<RcloneServer> = None;
 
     let upload_list = match parsed_toml
         .get_section_from_toml(toml::TomlSection::Upload)
@@ -75,6 +81,37 @@ pub async fn begin_sync(parsed_toml: &toml::TomlParser, nointe: bool) -> Result<
         Ok(toml::TomlToParse::Upload(dir)) => dir,
         _ => return Err(anyhow::anyhow!("Unexpected section type for upload list")),
     };
+
+    let mut is_rclone_server_started: bool = false;
+    for (_k, to_up) in &upload_list {
+        //if cache::exists(cache.get(&to_up.file_or_dir_path).await.as_ref()).await {
+        let server = sync(parsed_toml, is_rclone_server_started, to_up).await?;
+        is_rclone_server_started = server.1;
+        rclone_server = Some(server.0);
+
+        //}
+    }
+
+    // Stop rclone when done
+    if let Some(mut server) = rclone_server {
+        server.stop().await;
+    }
+    Ok(())
+}
+
+async fn sync(
+    parsed_toml: &toml::TomlParser,
+    is_rclone_server_started: bool,
+    to_up: &toml::TomlUpload,
+) -> Result<(RcloneServer, bool)> {
+    let rclone_server;
+
+    if !is_rclone_server_started {
+        rclone_server = RcloneServer::start().await;
+    } else {
+        return Err(anyhow!("Rclone server already running"));
+    }
+
     let remote_list = match parsed_toml
         .get_section_from_toml(toml::TomlSection::CloudProviders)
         .await
@@ -87,61 +124,51 @@ pub async fn begin_sync(parsed_toml: &toml::TomlParser, nointe: bool) -> Result<
         println!("Waiting for rclone to start...");
     }
 
-    for (_k, to_up) in &upload_list {
-        // mount for this upload
-        let mut mount_jobid: Vec<u16> = vec![];
-        for remote in &to_up.upload_to_clouds {
-            let mount = rclone::mount_remote(remote_list.get(remote).unwrap()).await?;
-            mount_jobid.push(mount.job_id.unwrap());
-        }
-        while !mount_jobid.is_empty() {
-            let mut completed_indices = vec![];
-
-            // Collect indices of completed jobs first
-            for (i, job_id) in mount_jobid.iter().enumerate() {
-                if rclone::check_job_status(*job_id).await? {
-                    completed_indices.push(i);
-                }
-            }
-
-            // ✅ Remove completed jobs in reverse order to avoid shifting indices
-            for &index in completed_indices.iter().rev() {
-                mount_jobid.remove(index);
-            }
-
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
-        debug!("{:?}", mount_jobid);
-
-        let mut mount_jobid: Vec<u16> = vec![];
-        for remote in &to_up.upload_to_clouds {
-            let remote_path = format!("{}:{}", remote, to_up.upload_to_cloud_dir);
-            let sync =
-                rclone::sync_sync(to_up.file_or_dir_path.clone(), remote_path.to_string()).await?;
-            mount_jobid.push(sync.job_id.unwrap());
-        }
-        while !mount_jobid.is_empty() {
-            let mut completed_indices = vec![];
-
-            for (i, job_id) in mount_jobid.iter().enumerate() {
-                if rclone::check_job_status(*job_id).await? {
-                    completed_indices.push(i);
-                }
-            }
-
-            // Remove completed jobs in reverse order to avoid shifting indices
-            for &index in completed_indices.iter().rev() {
-                mount_jobid.remove(index);
-            }
-
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        }
-        debug!("{:?}", mount_jobid);
+    // mount for this upload
+    let mut mount_jobid: Vec<u16> = vec![];
+    for remote in &to_up.upload_to_clouds {
+        let mount = rclone::mount_remote(remote_list.get(remote).unwrap()).await?;
+        mount_jobid.push(mount.job_id.unwrap());
     }
+    let _ = job_progress(&mut mount_jobid).await;
+
+    let mut mount_jobid: Vec<u16> = vec![];
+    for remote in &to_up.upload_to_clouds {
+        let remote_path = format!("{}:{}", remote, to_up.upload_to_cloud_dir);
+        let sync =
+            rclone::sync_sync(to_up.file_or_dir_path.clone(), remote_path.to_string()).await?;
+        mount_jobid.push(sync.job_id.unwrap());
+    }
+    let _ = job_progress(&mut mount_jobid).await;
+    //for remote in &to_up.upload_to_clouds {
+    //    sys_ops::async_run_rclone_dismount(&remote_list.get(remote).unwrap().dir).await?;
+    //}
 
     // Stop rclone when done
+    Ok((rclone_server, true))
+}
 
-    rclone_server.stop().await;
+pub async fn job_progress(mount_jobid: &mut Vec<u16>) -> Result<()> {
+    while !mount_jobid.is_empty() {
+        mount_jobid.retain_mut(|job_id| {
+            let status = tokio::task::block_in_place(|| {
+                tokio::runtime::Handle::current().block_on(rclone::check_job_status(*job_id))
+            });
 
+            match status {
+                Ok(false) => true, // Keep the job if it's not completed
+                Ok(true) => {
+                    debug!("job_id {:?}", job_id);
+                    false // Remove completed job
+                }
+                Err(e) => {
+                    debug!("Error checking job status: {:?}", e);
+                    true // Keep the job to retry
+                }
+            }
+        });
+
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    }
     Ok(())
 }
