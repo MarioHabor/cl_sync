@@ -64,19 +64,6 @@ pub struct RcloneResponse {
     start_time: Option<DateTime<Local>>,
 }
 
-//        "duration": 1.248352007,
-//"endTime": "2025-02-15T19:36:43.64481602Z",
-//"error": "",
-//"finished": true,
-//"group": "job/17",
-//"id": 17,
-//"output": {},
-//"startTime": "2025-02-15T19:36:42.396464063Z",
-//"success": true
-
-//#[derive(Debug, Serialize, Deserialize)]
-//struct RcloneStatusResponse {}
-
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RcloneRquest {
@@ -166,6 +153,37 @@ pub async fn mount_remote(remote: &toml::CloudProviders) -> anyhow::Result<Rclon
     };
     rclone_rquest.post().await?;
     debug!("{:?} ", rclone_rquest);
+
+    Ok(rclone_rquest)
+}
+
+pub async fn copyfile(
+    local_dir: String,
+    file_name: String,
+    remote_name: String,
+    remote_dst: String,
+) -> anyhow::Result<RcloneRquest> {
+    //"srcFs": "/home/user/",
+    //"srcFile": "file.txt",
+    //"dstFs": "remote:",
+    //"dstFile": "file.txt"
+
+    let mut params = hashbrown::HashMap::new();
+    params.insert("srcFs".to_string(), local_dir);
+    params.insert("srcFile".to_string(), file_name);
+    params.insert("dstFs".to_string(), remote_name);
+    params.insert("dstFile".to_string(), remote_dst);
+
+    params.insert("_async".to_string(), "true".to_string());
+    println!("params : {:?}", params);
+
+    let mut rclone_rquest = RcloneRquest {
+        command: "operations/copyfile".to_string(),
+        params,
+        job_id: None,
+        finished: None,
+    };
+    rclone_rquest.post().await?;
 
     Ok(rclone_rquest)
 }

@@ -97,3 +97,18 @@ async fn sync(parsed_toml: &toml::TomlParser) -> Result<()> {
     rclone_server.stop().await;
     Ok(())
 }
+
+
+
+copyfile
+
+curl -X POST http://localhost:5574/operations/copyfile \
+    -H "Content-Type: application/json" \
+    -d '{ "srcFs": "/home/dev/Documents/OBvault2/", "dstFs": "dge:OBvault", "createEmptySrcDirs": true, "_async": true }'
+
+{
+  "srcFs": "remote1:",
+  "srcFile": "path/to/source-file.txt",
+  "dstFs": "remote2:",
+  "dstFile": "path/to/destination-file.txt"
+}

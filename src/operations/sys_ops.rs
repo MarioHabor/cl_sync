@@ -33,17 +33,17 @@ pub async fn read_dir_content(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub async fn is_file(path: PathBuf) -> bool {
+pub async fn is_file(path: PathBuf) -> Result<bool> {
     match fs::metadata(path).await {
-        Ok(metadata) => metadata.is_file(),
-        Err(_) => false,
+        Ok(metadata) => Ok(metadata.is_file()),
+        Err(_) => Ok(false),
     }
 }
 
-pub async fn is_dir(path: PathBuf) -> bool {
+pub async fn is_dir(path: PathBuf) -> Result<bool> {
     match fs::metadata(path).await {
-        Ok(metadata) => metadata.is_dir(),
-        Err(_) => false,
+        Ok(metadata) => Ok(metadata.is_dir()),
+        Err(_) => Ok(false),
     }
 }
 

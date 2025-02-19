@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use dialoguer::Input;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::exit;
 use tracing::debug;
@@ -19,7 +20,7 @@ pub async fn check_last_update() {
 // interactive mode is set to true by default pass --nointe to disable
 pub async fn interactive_mode_to_up(nointe: bool, path: &PathBuf) -> Result<bool> {
     if !nointe {
-        let dir_or_file = if sys_ops::is_dir(path.to_path_buf()).await {
+        let dir_or_file = if sys_ops::is_dir(path.to_path_buf()).await? {
             "directory"
         } else {
             "file"
@@ -58,7 +59,7 @@ pub async fn begin_upload(
         // call sync opperation
     }
 
-    if sys_ops::is_dir(path).await {
+    if sys_ops::is_dir(path).await? {
         debug!("Uploading directory.");
     } else {
         debug!("Uploading file.");
@@ -66,8 +67,6 @@ pub async fn begin_upload(
 
     Ok(())
 }
-
-//let cache = async_load_cache(&parsed_toml).await;
 
 pub async fn begin_sync(parsed_toml: &toml::TomlParser) -> Result<()> {
     let cache = cache::load(&parsed_toml).await.unwrap();
@@ -93,6 +92,43 @@ pub async fn begin_sync(parsed_toml: &toml::TomlParser) -> Result<()> {
             .unwrap();
 
             if cache::compare_last_update(cache_last_up, &to_up.file_or_dir_path).await? {
+                let path = PathBuf::from(&to_up.file_or_dir_path);
+                if sys_ops::is_dir(path.clone()).await? {
+                    let server = sync(
+                        parsed_toml,
+                        is_rclone_server_started,
+                        to_up,
+                        &mut mounted_remotes,
+                    )
+                    .await?;
+                    is_rclone_server_started = server.1;
+                    rclone_server = Some(server.0);
+                    let _ = cache::save_last_update_to_cache(&to_up.file_or_dir_path, &parsed_toml)
+                        .await?;
+                } else if sys_ops::is_file(path).await? {
+                    let server = file_sync(
+                        parsed_toml,
+                        is_rclone_server_started,
+                        to_up,
+                        &mut mounted_remotes,
+                    )
+                    .await?;
+                    is_rclone_server_started = server.1;
+                    rclone_server = Some(server.0);
+                    let _ = cache::save_last_update_to_cache(&to_up.file_or_dir_path, &parsed_toml)
+                        .await?;
+                } else {
+                    eprintln!(
+                        "Skipping: {} is neither a directory nor a file",
+                        to_up.file_or_dir_path
+                    );
+                    continue;
+                }
+            }
+            // new file to upload
+        } else {
+            let path = PathBuf::from(&to_up.file_or_dir_path);
+            if sys_ops::is_dir(path.clone()).await? {
                 let server = sync(
                     parsed_toml,
                     is_rclone_server_started,
@@ -104,18 +140,25 @@ pub async fn begin_sync(parsed_toml: &toml::TomlParser) -> Result<()> {
                 rclone_server = Some(server.0);
                 let _ =
                     cache::save_last_update_to_cache(&to_up.file_or_dir_path, &parsed_toml).await?;
+            } else if sys_ops::is_file(path).await? {
+                let server = file_sync(
+                    parsed_toml,
+                    is_rclone_server_started,
+                    to_up,
+                    &mut mounted_remotes,
+                )
+                .await?;
+                is_rclone_server_started = server.1;
+                rclone_server = Some(server.0);
+                let _ =
+                    cache::save_last_update_to_cache(&to_up.file_or_dir_path, &parsed_toml).await?;
+            } else {
+                eprintln!(
+                    "Skipping: {} is neither a directory nor a file",
+                    to_up.file_or_dir_path
+                );
+                continue;
             }
-        } else {
-            let server = sync(
-                parsed_toml,
-                is_rclone_server_started,
-                to_up,
-                &mut mounted_remotes,
-            )
-            .await?;
-            is_rclone_server_started = server.1;
-            rclone_server = Some(server.0);
-            let _ = cache::save_last_update_to_cache(&to_up.file_or_dir_path, &parsed_toml).await?;
         }
     }
 
@@ -138,7 +181,8 @@ async fn sync<'a>(
     if !is_rclone_server_started {
         rclone_server = RcloneServer::start().await;
     } else {
-        return Err(anyhow!("Rclone server already running"));
+        //debug!("server all ready started.")
+        println!("server all ready started.")
     }
 
     let remote_list = match parsed_toml
@@ -176,6 +220,64 @@ async fn sync<'a>(
     Ok((rclone_server, true, mounted_remotes))
 }
 
+async fn file_sync<'a>(
+    parsed_toml: &'a toml::TomlParser,
+    is_rclone_server_started: bool,
+    to_up: &'a toml::TomlUpload,
+    mounted_remotes: &'a mut Vec<String>,
+) -> Result<(RcloneServer, bool, &'a mut Vec<String>)> {
+    let rclone_server;
+
+    if !is_rclone_server_started {
+        rclone_server = RcloneServer::start().await;
+    } else {
+        //debug!("server all ready started.")
+        println!("server all ready started.");
+    }
+
+    let remote_list = match parsed_toml
+        .get_section_from_toml(toml::TomlSection::CloudProviders)
+        .await
+    {
+        Ok(toml::TomlToParse::CloudProviders(cloud)) => cloud,
+        _ => return Err(anyhow::anyhow!("Unexpected section type for upload list")),
+    };
+
+    while !rclone::RcloneServer::is_running().await {
+        println!("Waiting for rclone to start...");
+    }
+
+    // mount for this upload
+    let mut mount_jobid: Vec<u16> = vec![];
+    for remote in &to_up.upload_to_clouds {
+        let remote_path = remote_list.get(remote).unwrap();
+        mounted_remotes.push(remote_path.dir.to_string());
+        let mount = rclone::mount_remote(&remote_path).await?;
+        mount_jobid.push(mount.job_id.unwrap());
+    }
+    let _ = job_progress(&mut mount_jobid).await;
+
+    let mut mount_jobid: Vec<u16> = vec![];
+    for remote in &to_up.upload_to_clouds {
+        let local_dir = Path::new(&to_up.upload_to_cloud_dir);
+        let colon_remote = format!("{}:", remote);
+        let remote_dst_path = format!("{}:{}", remote, &to_up.upload_to_cloud_dir);
+
+        let sync = rclone::copyfile(
+            local_dir.parent().unwrap().to_string_lossy().to_string(),
+            to_up.file_or_dir_name.to_string(),
+            colon_remote,
+            remote_dst_path,
+        )
+        .await?;
+        mount_jobid.push(sync.job_id.unwrap());
+    }
+    let _ = job_progress(&mut mount_jobid).await;
+
+    // Stop rclone when done
+    Ok((rclone_server, true, mounted_remotes))
+}
+
 pub async fn job_progress(mount_jobid: &mut Vec<u16>) -> Result<()> {
     while !mount_jobid.is_empty() {
         mount_jobid.retain_mut(|job_id| {
@@ -202,7 +304,7 @@ pub async fn job_progress(mount_jobid: &mut Vec<u16>) -> Result<()> {
 }
 
 async fn dismount_remotes(mounted_remotes: &mut Vec<String>) -> Result<()> {
-    println!("{:?}", mounted_remotes);
+    //println!("{:?}", mounted_remotes);
     for remote in mounted_remotes {
         sys_ops::fusermount(remote).await?;
     }
